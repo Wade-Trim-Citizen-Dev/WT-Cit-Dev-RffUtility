@@ -123,7 +123,12 @@ def validate_compatible(files: List[RFFFile]) -> None:
                 )
 
 
-def read_gauge_records(path: str, entry: GaugeDirEntry) -> List[Tuple[float, float]]:
+def read_gauge_records(path: str, entry: GaugeDirEntry, fh=None) -> List[Tuple[float, float]]:
+    """Read a gauge's (time, value) records.
+
+    Pass ``fh`` (an already-open binary handle for ``path``) to reuse it across
+    many gauges instead of re-opening the file for every read.
+    """
     nbytes = entry.end_offset - entry.start_offset
     if nbytes < 0:
         raise ValueError(f"{path}: Negative gauge data length for {entry.gauge_id}")
@@ -134,9 +139,13 @@ def read_gauge_records(path: str, entry: GaugeDirEntry) -> List[Tuple[float, flo
             f"{path}: Gauge {entry.gauge_id} data length {nbytes} not divisible by {RECORD_SIZE}"
         )
 
-    with open(path, "rb") as f:
-        f.seek(entry.start_offset)
-        blob = _read_exact(f, nbytes)
+    if fh is not None:
+        fh.seek(entry.start_offset)
+        blob = _read_exact(fh, nbytes)
+    else:
+        with open(path, "rb") as f:
+            f.seek(entry.start_offset)
+            blob = _read_exact(f, nbytes)
 
     recs: List[Tuple[float, float]] = []
     for t, v in struct.iter_unpack("<df", blob):
@@ -235,29 +244,36 @@ def merge_rff(input_paths: List[str], output_path: str, progress_every: int = 25
         current_offset = len(MAGIC) + 4 + gauge_count * GAUGE_BLOCK_SIZE
         new_blocks: List[bytes] = [b""] * gauge_count
 
-        for i in range(gauge_count):
-            gid = base_dir[i].gauge_id
+        # Open each input file once and reuse the handle for every gauge read,
+        # rather than re-opening the file gauge_count times per input.
+        in_handles = [open(rff.path, "rb") for rff in rffs]
+        try:
+            for i in range(gauge_count):
+                gid = base_dir[i].gauge_id
 
-            if progress_callback:
-                progress_callback(i + 1, gauge_count, gid)
-            elif i == 0 or (i + 1) % progress_every == 0 or (i + 1) == gauge_count:
-                print(f"  Gauge {i+1}/{gauge_count}: {gid}")
+                if progress_callback:
+                    progress_callback(i + 1, gauge_count, gid)
+                elif i == 0 or (i + 1) % progress_every == 0 or (i + 1) == gauge_count:
+                    print(f"  Gauge {i+1}/{gauge_count}: {gid}")
 
-            per_file_records: List[List[Tuple[float, float]]] = []
-            for rff in rffs:
-                entry = rff.directory[i]
-                recs = read_gauge_records(rff.path, entry)
-                per_file_records.append(recs)
+                per_file_records: List[List[Tuple[float, float]]] = []
+                for rff, fh in zip(rffs, in_handles):
+                    entry = rff.directory[i]
+                    recs = read_gauge_records(rff.path, entry, fh=fh)
+                    per_file_records.append(recs)
 
-            merged = merge_records_with_precedence(per_file_records)
-            blob = pack_records(merged)
+                merged = merge_records_with_precedence(per_file_records)
+                blob = pack_records(merged)
 
-            start = current_offset
-            out.write(blob)
-            current_offset += len(blob)
-            end = current_offset
+                start = current_offset
+                out.write(blob)
+                current_offset += len(blob)
+                end = current_offset
 
-            new_blocks[i] = patch_directory_block(base_dir[i].raw_block, start, end)
+                new_blocks[i] = patch_directory_block(base_dir[i].raw_block, start, end)
+        finally:
+            for fh in in_handles:
+                fh.close()
 
         print("Patching directory offsets...")
         out.seek(len(MAGIC) + 4)

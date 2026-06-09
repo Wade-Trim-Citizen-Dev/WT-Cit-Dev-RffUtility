@@ -1,0 +1,6 @@
+# Runtime dependencies for RFF Merger
+PyQt5>=5.15
+pyqtgraph>=0.13
+
+# Build-only (creating the .exe via build_exe.bat); not needed to run from source:
+#   pyinstaller>=6.0
