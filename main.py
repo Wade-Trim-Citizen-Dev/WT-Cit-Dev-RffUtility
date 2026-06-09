@@ -11,7 +11,6 @@ from PyQt5.QtGui import QIcon
 
 from merge_rff import merge_rff
 from visualize import VisualizationDialog
-from apptrack import AppTracker
 
 VERSION = "v1.0.1"
 
@@ -98,10 +97,6 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(f"RFF Merger {VERSION}")
         self.setWindowIcon(QIcon(resource_path(os.path.join("assets", "icon.ico"))))
         self.resize(600, 500)
-        
-        # Telemetry: App Launch
-        self.tracker = AppTracker(channel="gui", version=VERSION)
-        self.tracker.ping_async()
 
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -221,9 +216,6 @@ class MainWindow(QMainWindow):
         self.progress_bar.show()
         self.progress_bar.setValue(0)
         self.status_label.setText("Merging...")
-
-        # Telemetry: Merge attempt
-        AppTracker(channel="gui", version=VERSION).ping_async()
 
         self.thread = MergeThread(input_paths, output_path)
         self.thread.progress.connect(self.update_progress)
