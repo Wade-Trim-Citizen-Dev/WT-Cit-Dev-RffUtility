@@ -13,7 +13,7 @@ from merge_rff import merge_rff
 from visualize import VisualizationDialog
 from theme import STYLESHEET, PLACEHOLDER
 
-VERSION = "v1.0.1"
+VERSION = "v1.1.0"
 
 def resource_path(relative_path):
     """ Get absolute path to resource, works for dev and for PyInstaller """
