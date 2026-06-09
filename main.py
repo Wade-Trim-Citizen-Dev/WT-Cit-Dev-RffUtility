@@ -2,15 +2,16 @@ import sys
 import os
 from pathlib import Path
 
-from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
-                             QHBoxLayout, QPushButton, QListWidget, QListWidgetItem, 
-                             QAbstractItemView, QFileDialog, QLabel, QLineEdit, 
-                             QMessageBox, QProgressBar)
-from PyQt5.QtCore import Qt, QThread, pyqtSignal
-from PyQt5.QtGui import QIcon
+from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
+                             QHBoxLayout, QPushButton, QListWidget, QListWidgetItem,
+                             QAbstractItemView, QFileDialog, QLabel, QLineEdit,
+                             QMessageBox, QProgressBar, QGroupBox)
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, QSize
+from PyQt5.QtGui import QIcon, QPainter, QColor
 
 from merge_rff import merge_rff
 from visualize import VisualizationDialog
+from theme import STYLESHEET, PLACEHOLDER
 
 VERSION = "v1.0.1"
 
@@ -90,25 +91,79 @@ class DragDropListWidget(QListWidget):
         item.setToolTip(file_path)
         self.addItem(item)
 
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        # Draw a centered hint while the list is empty.
+        if self.count() == 0:
+            painter = QPainter(self.viewport())
+            painter.save()
+            painter.setPen(QColor(PLACEHOLDER))
+            painter.drawText(
+                self.viewport().rect(),
+                Qt.AlignCenter,
+                "Drag & drop .rff files here\nor click “Add Files”",
+            )
+            painter.restore()
+
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle(f"RFF Merger {VERSION}")
         self.setWindowIcon(QIcon(resource_path(os.path.join("assets", "icon.ico"))))
-        self.resize(600, 500)
+        self.setMinimumSize(640, 560)
+        self.resize(680, 600)
 
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         main_layout = QVBoxLayout(central_widget)
+        main_layout.setContentsMargins(18, 18, 18, 16)
+        main_layout.setSpacing(14)
 
-        # File List
-        main_layout.addWidget(QLabel("1. Drag and Drop .rff files here (drag to reorder chronologically):"))
+        # --- Header ---------------------------------------------------------
+        header = QHBoxLayout()
+        header.setSpacing(12)
+
+        icon_label = QLabel()
+        icon_label.setPixmap(
+            QIcon(resource_path(os.path.join("assets", "icon.ico"))).pixmap(QSize(44, 44))
+        )
+        icon_label.setFixedSize(44, 44)
+        header.addWidget(icon_label)
+
+        title_box = QVBoxLayout()
+        title_box.setSpacing(0)
+        title = QLabel("RFF Merger")
+        title.setObjectName("title")
+        subtitle = QLabel("Merge & inspect SWMM5-RAIN rainfall files")
+        subtitle.setObjectName("subtitle")
+        title_box.addWidget(title)
+        title_box.addWidget(subtitle)
+        header.addLayout(title_box)
+        header.addStretch()
+
+        version_label = QLabel(VERSION)
+        version_label.setObjectName("subtitle")
+        version_label.setAlignment(Qt.AlignTop | Qt.AlignRight)
+        header.addWidget(version_label)
+        main_layout.addLayout(header)
+
+        # --- 1. Input files -------------------------------------------------
+        input_group = QGroupBox("1  ·  Input Files")
+        input_layout = QVBoxLayout(input_group)
+        input_layout.setSpacing(8)
+
+        hint = QLabel("Drag to reorder chronologically — files lower in the list "
+                      "overwrite higher ones on overlapping timestamps.")
+        hint.setObjectName("sectionHint")
+        hint.setWordWrap(True)
+        input_layout.addWidget(hint)
+
         self.file_list = DragDropListWidget()
-        main_layout.addWidget(self.file_list)
+        input_layout.addWidget(self.file_list)
 
-        # File List Controls
         list_btn_layout = QHBoxLayout()
+        list_btn_layout.setSpacing(8)
         btn_add = QPushButton("Add Files")
         btn_add.clicked.connect(self.browse_input_files)
         btn_remove = QPushButton("Remove Selected")
@@ -118,45 +173,53 @@ class MainWindow(QMainWindow):
         list_btn_layout.addWidget(btn_add)
         list_btn_layout.addWidget(btn_remove)
         list_btn_layout.addWidget(btn_clear)
-        main_layout.addLayout(list_btn_layout)
+        list_btn_layout.addStretch()
+        input_layout.addLayout(list_btn_layout)
+        main_layout.addWidget(input_group)
 
-        # Output Selection
-        main_layout.addWidget(QLabel("2. Select Output File:"))
-        out_layout = QHBoxLayout()
+        # --- 2. Output file -------------------------------------------------
+        output_group = QGroupBox("2  ·  Output File")
+        out_layout = QHBoxLayout(output_group)
+        out_layout.setSpacing(8)
         self.out_edit = QLineEdit()
+        self.out_edit.setPlaceholderText("Choose where to save the merged .rff file…")
         out_layout.addWidget(self.out_edit)
-        btn_out_browse = QPushButton("Browse")
+        btn_out_browse = QPushButton("Browse…")
         btn_out_browse.clicked.connect(self.browse_output_file)
         out_layout.addWidget(btn_out_browse)
-        main_layout.addLayout(out_layout)
+        main_layout.addWidget(output_group)
 
-        # Action Buttons
-        main_layout.addSpacing(10)
-        main_layout.addWidget(QLabel("3. Actions:"))
+        # --- 3. Actions -----------------------------------------------------
         action_layout = QHBoxLayout()
-        
+        action_layout.setSpacing(8)
+
         btn_visualize = QPushButton("Visualize / Statistics")
         btn_visualize.clicked.connect(self.show_visualization)
         action_layout.addWidget(btn_visualize)
-        
-        self.btn_merge = QPushButton("Merge Files")
-        self.btn_merge.setStyleSheet("font-weight: bold; background-color: #4CAF50; color: white; padding: 5px;")
-        self.btn_merge.clicked.connect(self.start_merge)
-        action_layout.addWidget(self.btn_merge)
-        
+
         btn_help = QPushButton("Help")
         btn_help.clicked.connect(self.show_help)
         action_layout.addWidget(btn_help)
-        
+
+        action_layout.addStretch()
+
+        self.btn_merge = QPushButton("Merge Files")
+        self.btn_merge.setObjectName("mergeButton")
+        self.btn_merge.setMinimumWidth(150)
+        self.btn_merge.clicked.connect(self.start_merge)
+        action_layout.addWidget(self.btn_merge)
         main_layout.addLayout(action_layout)
 
-        # Progress
+        # --- Progress / status ---------------------------------------------
         self.progress_bar = QProgressBar()
         self.progress_bar.setValue(0)
+        self.progress_bar.setTextVisible(False)
+        self.progress_bar.setFixedHeight(8)
         self.progress_bar.hide()
         main_layout.addWidget(self.progress_bar)
-        
+
         self.status_label = QLabel("Ready")
+        self.status_label.setObjectName("statusLabel")
         main_layout.addWidget(self.status_label)
 
     def get_file_paths(self):
@@ -243,9 +306,10 @@ class MainWindow(QMainWindow):
 
 def main():
     app = QApplication(sys.argv)
-    
-    # Optional styling
+
+    # Styling
     app.setStyle("Fusion")
+    app.setStyleSheet(STYLESHEET)
     app.setWindowIcon(QIcon(resource_path(os.path.join("assets", "icon.ico"))))
 
     window = MainWindow()

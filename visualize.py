@@ -7,6 +7,12 @@ import pyqtgraph as pg
 import datetime
 
 from merge_rff import read_rff_header_and_directory, read_gauge_records
+from theme import ACCENT, SURFACE, TEXT
+
+# Global pyqtgraph look: white canvas, dark axes, smooth lines.
+pg.setConfigOption("background", SURFACE)
+pg.setConfigOption("foreground", TEXT)
+pg.setConfigOptions(antialias=True)
 
 # Convert Excel serial date to Python datetime
 def excel_to_datetime(excel_date):
@@ -86,8 +92,11 @@ class VisualizationDialog(QDialog):
         self.plot_data_map = {}
 
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(12)
 
-        self.info_label = QLabel("Analyzing data...")
+        self.info_label = QLabel("Analyzing data…")
+        self.info_label.setObjectName("subtitle")
         self.info_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(self.info_label)
 
@@ -95,6 +104,11 @@ class VisualizationDialog(QDialog):
         self.table.setColumnCount(2)
         self.table.setHorizontalHeaderLabels(["Statistic", "Value"])
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.table.verticalHeader().setVisible(False)
+        self.table.setAlternatingRowColors(True)
+        self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.table.setSelectionMode(QTableWidget.NoSelection)
+        self.table.setShowGrid(False)
         layout.addWidget(self.table)
 
         # Plot widget and selector
@@ -176,8 +190,18 @@ class VisualizationDialog(QDialog):
             times, values = self.plot_data_map[gid]
             unix_times = [((t - 25569) * 86400) for t in times]
             self.plot_widget.clear()
-            self.plot_widget.plot(unix_times, list(values), pen='b', name=gid)
-            self.plot_widget.setTitle(f"Rainfall Data Preview - Gauge: {gid}")
+            accent = pg.mkColor(ACCENT)
+            fill = pg.mkColor(ACCENT)
+            fill.setAlpha(50)
+            self.plot_widget.plot(
+                unix_times,
+                list(values),
+                pen=pg.mkPen(accent, width=1.5),
+                fillLevel=0,
+                brush=fill,
+                name=gid,
+            )
+            self.plot_widget.setTitle(f"Rainfall Data Preview — Gauge: {gid}")
 
     def on_processing_error(self, err_msg):
         self.info_label.setText(f"Error analyzing data: {err_msg}")
