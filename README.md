@@ -16,8 +16,8 @@ of older data.
   per-file gauge browser, a cumulative-rainfall view, and a progress bar while
   files are analyzed (numpy-backed reads — a 40 MB file takes well under a
   second locally).
-- Export any `.rff` file to CSV (long or wide), SWMM user-prepared rain data
-  (`.dat`), or JSON — all gauges or a checked subset.
+- Export any `.rff` file to CSV (long, wide, or one file per gauge), SWMM
+  user-prepared rain data (`.dat`), or JSON — all gauges or a checked subset.
 - Background merge with a progress bar.
 - Standalone CLIs for batch/scripted merging (`merge_rff.py`) and exporting
   (`export_rff.py`).
@@ -75,12 +75,13 @@ python export_rff.py input.rff --list
 python export_rff.py input.rff -o rainfall.csv
 python export_rff.py input.rff -o rainfall.dat --gauges GAGEA01C1,GAGEA02C1
 python export_rff.py input.rff -o rainfall.csv -f csv-wide
+python export_rff.py input.rff -o rainfall.csv -f csv-split
 ```
 
 | Option | Description |
 | --- | --- |
-| `-o`, `--output` | Output file path. |
-| `-f`, `--format` | `csv`, `csv-wide`, `dat`, or `json` (default: inferred from the output extension, else `csv`). |
+| `-o`, `--output` | Output file path (for `csv-split`, the base name for the per-gauge files). |
+| `-f`, `--format` | `csv`, `csv-wide`, `csv-split`, `dat`, or `json` (default: inferred from the output extension, else `csv`). |
 | `--gauges` | Comma-separated gauge IDs to export (default: all). |
 | `--list` | List the file's gauges (ID, interval, record count) and exit. |
 
@@ -89,6 +90,9 @@ Formats:
 - **`csv`** — one row per reading: `gauge_id, datetime, value`.
 - **`csv-wide`** — one row per timestamp, one column per gauge (blank where a
   gauge has no reading).
+- **`csv-split`** — one file per gauge with `datetime, value` rows, written
+  next to the output path as `<name>_<gauge>.csv` (gauges with no data get a
+  header-only file; characters not allowed in filenames become `_`).
 - **`dat`** — SWMM5 user-prepared rain data, directly usable as a rain gage
   data file: `station year month day hour minute value`.
 - **`json`** — one object per gauge with `id`, `interval_seconds`,

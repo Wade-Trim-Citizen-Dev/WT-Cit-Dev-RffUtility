@@ -39,7 +39,7 @@ dlg = ExportDialog(window.get_file_paths(), parent=window,
 assert dlg.file_combo.currentIndex() == 1, "initial_path should preselect file"
 assert dlg.gauge_list.count() == 1245, f"expected 1245 gauges, got {dlg.gauge_list.count()}"
 assert dlg.out_edit.text().endswith(".csv"), "suggested output should be .csv"
-dlg.format_combo.setCurrentIndex(2)  # SWMM .dat
+dlg.format_combo.setCurrentText("SWMM rain data (.dat)")
 assert dlg.out_edit.text().endswith(".dat"), "extension should follow format"
 dlg.set_all_checked(False)
 dlg.gauge_list.item(0).setCheckState(Qt.Checked)
@@ -53,6 +53,21 @@ with open(out_path, encoding="utf-8") as f:
     first = f.readline().split()
 assert len(first) == 7, f"dat line should have 7 fields, got {first}"
 print("ExportDialog OK:", first)
+
+# csv-split: one file per gauge, output path is the base name
+dlg.format_combo.setCurrentText("CSV — one file per gauge")
+split_base = os.path.join(os.environ["TEMP"], "smoke_split.csv")
+dlg.out_edit.setText(split_base)
+assert not dlg.out_hint.isHidden(), "csv-split should show the per-gauge name hint"
+gid = dlg.gauge_list.item(0).data(Qt.UserRole)
+dlg.start_export()
+dlg.worker.wait(30000)
+app.processEvents()
+split_path = os.path.join(os.environ["TEMP"], f"smoke_split_{gid}.csv")
+assert os.path.isfile(split_path), f"csv-split should write {split_path}"
+with open(split_path, encoding="utf-8") as f:
+    assert f.readline().strip() == "datetime,value", "split file should have datetime,value header"
+print("ExportDialog csv-split OK:", os.path.basename(split_path))
 dlg.close()
 
 # --- VisualizationDialog ----------------------------------------------------

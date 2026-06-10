@@ -3,18 +3,19 @@
 import os
 from pathlib import Path
 
+from export_rff import export_rff_file, list_gauges
+
 from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                              QPushButton, QComboBox, QLineEdit, QListWidget,
                              QListWidgetItem, QFileDialog, QMessageBox,
                              QProgressBar, QGroupBox)
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 
-from export_rff import FORMATS, export_rff_file, list_gauges
-
 # (label, format key, file-dialog filter, default extension)
 _FORMAT_CHOICES = [
     ("CSV — one row per reading", "csv", "CSV Files (*.csv)", ".csv"),
     ("CSV — one column per gauge", "csv-wide", "CSV Files (*.csv)", ".csv"),
+    ("CSV — one file per gauge", "csv-split", "CSV Files (*.csv)", ".csv"),
     ("SWMM rain data (.dat)", "dat", "SWMM Rain Data (*.dat *.txt)", ".dat"),
     ("JSON", "json", "JSON Files (*.json)", ".json"),
 ]
@@ -34,12 +35,15 @@ class ExportWorker(QThread):
 
     def run(self):
         try:
-            export_rff_file(
+            result = export_rff_file(
                 self.input_path, self.output_path, self.fmt,
                 gauges=self.gauges,
                 progress_callback=lambda c, t, g: self.progress.emit(c, t, g),
             )
-            self.finished.emit(self.output_path)
+            if isinstance(result, list):
+                self.finished.emit(f"{Path(self.output_path).parent} ({len(result)} files)")
+            else:
+                self.finished.emit(result)
         except Exception as e:
             self.error.emit(str(e))
 
@@ -107,14 +111,22 @@ class ExportDialog(QDialog):
 
         # --- Output -----------------------------------------------------------
         out_group = QGroupBox("Output File")
-        out_layout = QHBoxLayout(out_group)
+        out_layout = QVBoxLayout(out_group)
         out_layout.setSpacing(8)
+        out_row = QHBoxLayout()
+        out_row.setSpacing(8)
         self.out_edit = QLineEdit()
         self.out_edit.setPlaceholderText("Choose where to save the exported file…")
-        out_layout.addWidget(self.out_edit)
+        self.out_edit.textChanged.connect(self.update_output_hint)
+        out_row.addWidget(self.out_edit)
         btn_browse = QPushButton("Browse…")
         btn_browse.clicked.connect(self.browse_output)
-        out_layout.addWidget(btn_browse)
+        out_row.addWidget(btn_browse)
+        out_layout.addLayout(out_row)
+        self.out_hint = QLabel("")
+        self.out_hint.setObjectName("sectionHint")
+        self.out_hint.hide()
+        out_layout.addWidget(self.out_hint)
         layout.addWidget(out_group)
 
         # --- Actions / progress -----------------------------------------------
@@ -192,9 +204,22 @@ class ExportDialog(QDialog):
         current = self.out_edit.text().strip()
         if not current:
             self.suggest_output_path()
+        else:
+            _, _, _, ext = self.current_format()
+            self.out_edit.setText(str(Path(current).with_suffix(ext)))
+        self.update_output_hint()
+
+    def update_output_hint(self):
+        _, fmt, _, _ = self.current_format()
+        path = self.out_edit.text().strip()
+        if fmt != "csv-split" or not path:
+            self.out_hint.hide()
             return
-        _, _, _, ext = self.current_format()
-        self.out_edit.setText(str(Path(current).with_suffix(ext)))
+        base = Path(path)
+        self.out_hint.setText(
+            f"One file per gauge: {base.stem}_<gauge>{base.suffix or '.csv'}"
+        )
+        self.out_hint.show()
 
     def browse_output(self):
         _, _, file_filter, ext = self.current_format()
