@@ -104,6 +104,37 @@ class TestExportRFF(unittest.TestCase):
         self.assertEqual(lines[2], "2018-04-01 00:15:00,0.25,1.5,")
         self.assertEqual(len(lines), 3)
 
+    def test_export_csv_split(self):
+        out = str(self.dir / "out.csv")
+        written = export_rff_file(self.rff_path, out, "csv-split")
+        self.assertEqual(written, [str(self.dir / "out_G1.csv"),
+                                   str(self.dir / "out_G2.csv"),
+                                   str(self.dir / "out_EMPTY.csv")])
+        g1 = Path(written[0]).read_text(encoding="utf-8").splitlines()
+        self.assertEqual(g1, ["datetime,value",
+                              "2018-04-01 00:00:00,0.5",
+                              "2018-04-01 00:15:00,0.25"])
+        g2 = Path(written[1]).read_text(encoding="utf-8").splitlines()
+        self.assertEqual(g2, ["datetime,value", "2018-04-01 00:15:00,1.5"])
+        # Empty gauges still get a header-only file
+        empty = Path(written[2]).read_text(encoding="utf-8").splitlines()
+        self.assertEqual(empty, ["datetime,value"])
+
+    def test_export_csv_split_gauge_filter(self):
+        out = str(self.dir / "out.csv")
+        written = export_rff_file(self.rff_path, out, "csv-split", gauges=["G2"])
+        self.assertEqual(written, [str(self.dir / "out_G2.csv")])
+        self.assertFalse((self.dir / "out_G1.csv").exists())
+
+    def test_export_csv_split_sanitizes_and_dedupes(self):
+        rff = str(self.dir / "odd.rff")
+        # "A/B" sanitizes to "A_B", colliding with the literal "A_B" gauge
+        write_rff(rff, [("A/B", [(T0, 1.0)]), ("A_B", [(T0, 2.0)])])
+        written = export_rff_file(rff, str(self.dir / "out.csv"), "csv-split")
+        self.assertEqual(written, [str(self.dir / "out_A_B.csv"),
+                                   str(self.dir / "out_A_B_2.csv")])
+        self.assertIn("2", Path(written[1]).read_text(encoding="utf-8"))
+
     def test_export_dat(self):
         lines = self.export("dat", "out.dat").splitlines()
         self.assertEqual(lines[0], "G1 2018 04 01 00 00 0.5")
