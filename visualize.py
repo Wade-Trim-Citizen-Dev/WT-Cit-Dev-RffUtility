@@ -1,12 +1,16 @@
 import sys
-from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
+from itertools import accumulate
+from pathlib import Path
+
+from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                              QPushButton, QTableWidget, QTableWidgetItem, QHeaderView,
-                             QComboBox)
+                             QComboBox, QCheckBox)
 from PyQt5.QtCore import QThread, pyqtSignal, Qt
 import pyqtgraph as pg
-import datetime
 
-from merge_rff import read_rff_header_and_directory, read_gauge_records
+from merge_rff import (excel_to_datetime, read_rff_header_and_directory,
+                       read_gauge_records)
+from export_dialog import ExportDialog
 from theme import ACCENT, SURFACE, TEXT
 
 # Global pyqtgraph look: white canvas, dark axes, smooth lines.
@@ -14,11 +18,6 @@ pg.setConfigOption("background", SURFACE)
 pg.setConfigOption("foreground", TEXT)
 pg.setConfigOptions(antialias=True)
 
-# Convert Excel serial date to Python datetime
-def excel_to_datetime(excel_date):
-    # Excel origin is 1899-12-30
-    dt = datetime.datetime(1899, 12, 30) + datetime.timedelta(days=excel_date)
-    return dt
 
 class DataProcessorThread(QThread):
     finished = pyqtSignal(dict, list) # stats, plot_data
@@ -40,7 +39,7 @@ class DataProcessorThread(QThread):
                 "max_date": float('-inf'),
                 "max_rain": 0.0
             }
-            plot_data = [] # List of tuples (times, values) for each gauge of first file
+            plot_data = [] # List of tuples (times, values, gauge_id) for first file
 
             if not self.file_paths:
                 self.finished.emit(stats, plot_data)
@@ -49,7 +48,7 @@ class DataProcessorThread(QThread):
             # Read first file for plot
             rff_first = read_rff_header_and_directory(self.file_paths[0])
             stats["gauge_count"] = rff_first.gauge_count
-            
+
             all_gauges = set(entry.gauge_id for entry in rff_first.directory)
             gauges_with_data = set()
 
@@ -61,33 +60,58 @@ class DataProcessorThread(QThread):
                     stats["total_points"] += len(recs)
                     if recs:
                         gauges_with_data.add(entry.gauge_id)
-                        
+
                         times, values = zip(*recs)
                         c_min_time = min(times)
                         c_max_time = max(times)
                         c_max_val = max(values)
-                        
+
                         stats["min_date"] = min(stats["min_date"], c_min_time)
                         stats["max_date"] = max(stats["max_date"], c_max_time)
                         stats["max_rain"] = max(stats["max_rain"], c_max_val)
-                        
+
                         # Grab the first file's gauges for plotting to keep it light
                         if path == self.file_paths[0]:
                             plot_data.append((times, values, entry.gauge_id))
-            
+
             empty_gauges = all_gauges - gauges_with_data
             stats["active_gauges"] = len(gauges_with_data)
             stats["empty_gauges_list"] = sorted(list(empty_gauges))
-            
+
             self.finished.emit(stats, plot_data)
         except Exception as e:
             self.error.emit(str(e))
+
+
+class PlotLoaderThread(QThread):
+    """Load (times, values, gauge_id) tuples for one file, for plotting."""
+    finished = pyqtSignal(str, list)  # path, plot_data
+    error = pyqtSignal(str)
+
+    def __init__(self, path):
+        super().__init__()
+        self.path = path
+
+    def run(self):
+        try:
+            plot_data = []
+            rff = read_rff_header_and_directory(self.path)
+            with open(self.path, "rb") as fh:
+                for entry in rff.directory:
+                    recs = read_gauge_records(self.path, entry, fh=fh)
+                    if recs:
+                        times, values = zip(*recs)
+                        plot_data.append((times, values, entry.gauge_id))
+            self.finished.emit(self.path, plot_data)
+        except Exception as e:
+            self.error.emit(str(e))
+
 
 class VisualizationDialog(QDialog):
     def __init__(self, file_paths, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Data Statistics & Visualization")
-        self.resize(800, 600)
+        self.resize(800, 640)
         self.file_paths = file_paths
         self.plot_data_map = {}
 
@@ -111,12 +135,24 @@ class VisualizationDialog(QDialog):
         self.table.setShowGrid(False)
         layout.addWidget(self.table)
 
-        # Plot widget and selector
+        # Plot controls: file + gauge selectors, cumulative toggle
         selector_layout = QHBoxLayout()
-        selector_layout.addWidget(QLabel("Select Gauge:"))
+        selector_layout.addWidget(QLabel("File:"))
+        self.file_combo = QComboBox()
+        for path in file_paths:
+            self.file_combo.addItem(Path(path).name, path)
+            self.file_combo.setItemData(self.file_combo.count() - 1, path, Qt.ToolTipRole)
+        self.file_combo.currentIndexChanged.connect(self.on_file_selected)
+        selector_layout.addWidget(self.file_combo)
+
+        selector_layout.addWidget(QLabel("Gauge:"))
         self.gauge_combo = QComboBox()
         self.gauge_combo.currentIndexChanged.connect(self.on_gauge_selected)
         selector_layout.addWidget(self.gauge_combo)
+
+        self.cumulative_check = QCheckBox("Cumulative")
+        self.cumulative_check.toggled.connect(self.replot_current_gauge)
+        selector_layout.addWidget(self.cumulative_check)
         selector_layout.addStretch()
         layout.addLayout(selector_layout)
 
@@ -126,8 +162,11 @@ class VisualizationDialog(QDialog):
         self.plot_widget.setLabel('bottom', 'Time (Date)')
         self.plot_widget.showGrid(x=True, y=True)
         layout.addWidget(self.plot_widget)
-        
+
         btn_layout = QHBoxLayout()
+        export_btn = QPushButton("Export…")
+        export_btn.clicked.connect(self.show_export)
+        btn_layout.addWidget(export_btn)
         btn_layout.addStretch()
         close_btn = QPushButton("Close")
         close_btn.clicked.connect(self.accept)
@@ -142,15 +181,15 @@ class VisualizationDialog(QDialog):
 
     def on_processing_finished(self, stats, plot_data):
         self.info_label.setText(f"Analysis complete for {stats['file_count']} files.")
-        
+
         # Populate table
         stat_rows = []
         if stats['total_points'] > 0:
             min_dt = excel_to_datetime(stats['min_date']).strftime("%Y-%m-%d %H:%M:%S")
             max_dt = excel_to_datetime(stats['max_date']).strftime("%Y-%m-%d %H:%M:%S")
-            
+
             empty_text = ", ".join(stats['empty_gauges_list']) if stats['empty_gauges_list'] else "None"
-            
+
             stat_rows = [
                 ("Total Files", str(stats['file_count'])),
                 ("Expected Gauges", str(stats['gauge_count'])),
@@ -170,38 +209,78 @@ class VisualizationDialog(QDialog):
             self.table.setItem(row, 1, QTableWidgetItem(v))
         self.table.resizeRowsToContents()
 
+        self.set_plot_data(plot_data)
+
+    def set_plot_data(self, plot_data):
         self.plot_data_map = {gid: (times, values) for times, values, gid in plot_data}
-        
-        if self.plot_data_map:
-            self.gauge_combo.blockSignals(True)
-            self.gauge_combo.clear()
-            self.gauge_combo.addItems(list(self.plot_data_map.keys()))
-            self.gauge_combo.blockSignals(False)
-            
-            # Select the first gauge and plot
-            if self.gauge_combo.count() > 0:
-                self.on_gauge_selected(0)
+
+        self.gauge_combo.blockSignals(True)
+        self.gauge_combo.clear()
+        self.gauge_combo.addItems(list(self.plot_data_map.keys()))
+        self.gauge_combo.blockSignals(False)
+
+        if self.gauge_combo.count() > 0:
+            self.on_gauge_selected(0)
+        else:
+            self.plot_widget.clear()
+            self.plot_widget.setTitle("Rainfall Data Preview — no data in this file")
+
+    def on_file_selected(self, index):
+        if index < 0:
+            return
+        path = self.file_combo.currentData()
+        # Block re-entry while loading; combo is re-enabled when the load ends.
+        self.file_combo.setEnabled(False)
+        self.info_label.setText(f"Loading {Path(path).name}…")
+        self.plot_loader = PlotLoaderThread(path)
+        self.plot_loader.finished.connect(self.on_plot_loaded)
+        self.plot_loader.error.connect(self.on_plot_load_error)
+        self.plot_loader.start()
+
+    def on_plot_loaded(self, path, plot_data):
+        self.file_combo.setEnabled(True)
+        self.info_label.setText(f"Analysis complete for {len(self.file_paths)} files.")
+        self.set_plot_data(plot_data)
+
+    def on_plot_load_error(self, err_msg):
+        self.file_combo.setEnabled(True)
+        self.info_label.setText(f"Error loading file: {err_msg}")
 
     def on_gauge_selected(self, index):
         if index < 0:
             return
+        self.replot_current_gauge()
+
+    def replot_current_gauge(self):
         gid = self.gauge_combo.currentText()
-        if gid in self.plot_data_map:
-            times, values = self.plot_data_map[gid]
-            unix_times = [((t - 25569) * 86400) for t in times]
-            self.plot_widget.clear()
-            accent = pg.mkColor(ACCENT)
-            fill = pg.mkColor(ACCENT)
-            fill.setAlpha(50)
-            self.plot_widget.plot(
-                unix_times,
-                list(values),
-                pen=pg.mkPen(accent, width=1.5),
-                fillLevel=0,
-                brush=fill,
-                name=gid,
-            )
-            self.plot_widget.setTitle(f"Rainfall Data Preview — Gauge: {gid}")
+        if gid not in self.plot_data_map:
+            return
+        times, values = self.plot_data_map[gid]
+        unix_times = [((t - 25569) * 86400) for t in times]
+        cumulative = self.cumulative_check.isChecked()
+        plot_values = list(accumulate(values)) if cumulative else list(values)
+
+        self.plot_widget.clear()
+        accent = pg.mkColor(ACCENT)
+        fill = pg.mkColor(ACCENT)
+        fill.setAlpha(50)
+        self.plot_widget.plot(
+            unix_times,
+            plot_values,
+            pen=pg.mkPen(accent, width=1.5),
+            fillLevel=0,
+            brush=fill,
+            name=gid,
+        )
+        self.plot_widget.setLabel('left', 'Cumulative Rainfall' if cumulative else 'Rainfall',
+                                  units='in/mm')
+        kind = "Cumulative Rainfall" if cumulative else "Rainfall Data"
+        self.plot_widget.setTitle(f"{kind} Preview — Gauge: {gid}")
+
+    def show_export(self):
+        dlg = ExportDialog(self.file_paths, parent=self,
+                           initial_path=self.file_combo.currentData())
+        dlg.exec_()
 
     def on_processing_error(self, err_msg):
         self.info_label.setText(f"Error analyzing data: {err_msg}")

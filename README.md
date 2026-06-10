@@ -1,8 +1,9 @@
 # RFF Merger
 
 A Windows desktop utility (with a CLI) for working with **SWMM5-RAIN `.rff`
-binary rainfall files**. It merges multiple `.rff` files into a single file and
-lets you preview rainfall statistics and per-gauge time series before merging.
+binary rainfall files**. It merges multiple `.rff` files into a single file,
+lets you preview rainfall statistics and per-gauge time series, and exports
+gauge data to CSV, SWMM rain data (`.dat`), or JSON.
 
 When two files contain data for the same gauge at the same timestamp, the file
 **later in the merge order wins** — so you can layer corrected/newer data on top
@@ -11,9 +12,13 @@ of older data.
 ## Features
 
 - Drag-and-drop GUI to add and reorder `.rff` files (PyQt5).
-- Per-gauge statistics and an interactive rainfall plot (pyqtgraph).
+- Per-gauge statistics and an interactive rainfall plot (pyqtgraph), with a
+  per-file gauge browser and a cumulative-rainfall view.
+- Export any `.rff` file to CSV (long or wide), SWMM user-prepared rain data
+  (`.dat`), or JSON — all gauges or a checked subset.
 - Background merge with a progress bar.
-- Standalone CLI for batch/scripted merging of a whole folder.
+- Standalone CLIs for batch/scripted merging (`merge_rff.py`) and exporting
+  (`export_rff.py`).
 - Filename-aware ordering: files with `YYYY` and `Q1`–`Q4` in their names sort
   chronologically by default in the CLI.
 
@@ -39,10 +44,11 @@ python main.py
    files higher in the list are processed first; lower files overwrite higher
    ones on overlapping timestamps.
 2. Choose an output file.
-3. Click **Visualize / Statistics** to preview, or **Merge Files** to write the
-   merged output.
+3. Click **Visualize / Statistics** to preview (pick a file and gauge, toggle
+   **Cumulative** for a running total), **Export…** to convert a file to
+   CSV/`.dat`/JSON, or **Merge Files** to write the merged output.
 
-### CLI
+### CLI — merging
 
 Merge every `.rff` in a folder into one file:
 
@@ -59,6 +65,35 @@ python merge_rff.py --folder "C:\path\to\rff_files" -o "C:\path\to\merged.rff"
 
 In the CLI, inputs are sorted by `(year, quarter, filename)` parsed from the
 file names, so `2018_Q2`, `2018_Q3`, `2018_Q4` merge in calendar order.
+
+### CLI — exporting
+
+```bat
+python export_rff.py input.rff --list
+python export_rff.py input.rff -o rainfall.csv
+python export_rff.py input.rff -o rainfall.dat --gauges GAGEA01C1,GAGEA02C1
+python export_rff.py input.rff -o rainfall.csv -f csv-wide
+```
+
+| Option | Description |
+| --- | --- |
+| `-o`, `--output` | Output file path. |
+| `-f`, `--format` | `csv`, `csv-wide`, `dat`, or `json` (default: inferred from the output extension, else `csv`). |
+| `--gauges` | Comma-separated gauge IDs to export (default: all). |
+| `--list` | List the file's gauges (ID, interval, record count) and exit. |
+
+Formats:
+
+- **`csv`** — one row per reading: `gauge_id, datetime, value`.
+- **`csv-wide`** — one row per timestamp, one column per gauge (blank where a
+  gauge has no reading).
+- **`dat`** — SWMM5 user-prepared rain data, directly usable as a rain gage
+  data file: `station year month day hour minute value`.
+- **`json`** — one object per gauge with `id`, `interval_seconds`,
+  `record_count`, and `[datetime, value]` records.
+
+Timestamps are written as `YYYY-MM-DD HH:MM:SS`, rounded to the nearest second
+to remove floating-point jitter from the Excel day serials stored in the file.
 
 ## The `.rff` file format
 
@@ -97,8 +132,11 @@ timestamp.
 ## Tests
 
 ```bat
-python -m unittest test_merge.py
+python -m unittest discover -p "test_*.py"
 ```
+
+`smoke_gui.py` is an offscreen GUI smoke test (instantiates the real dialogs
+against the `examples/` files); run it with the project venv after UI changes.
 
 The `examples/` folder contains sample quarterly 2018 rainfall files you can use
 to try the merge and visualization workflows.
