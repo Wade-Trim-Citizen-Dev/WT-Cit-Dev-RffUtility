@@ -1,0 +1,81 @@
+"""Offscreen GUI smoke test: instantiate the main window and both dialogs
+against the real example files, exercise the control paths, and exit non-zero
+on any Qt/runtime error. Not part of the unit test suite (needs PyQt5)."""
+
+import os
+import sys
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtWidgets import QApplication, QMessageBox
+
+# Modal message boxes can't be dismissed offscreen — record and swallow them.
+boxes = []
+for name in ("information", "warning", "critical"):
+    setattr(QMessageBox, name,
+            staticmethod(lambda *a, _n=name, **k: boxes.append((_n, a[1:3])) or QMessageBox.Ok))
+
+import main as app_main
+from export_dialog import ExportDialog
+from visualize import VisualizationDialog
+
+EXAMPLES = [
+    os.path.join("examples", "Q2_2018_Rainfall.rff"),
+    os.path.join("examples", "Q3_2018_Rainfall.rff"),
+]
+
+failures = []
+
+app = QApplication(sys.argv)
+window = app_main.MainWindow()
+for p in EXAMPLES:
+    window.file_list.add_file(os.path.abspath(p))
+assert window.file_list.count() == 2, "file list should hold both examples"
+
+# --- ExportDialog ---------------------------------------------------------
+dlg = ExportDialog(window.get_file_paths(), parent=window,
+                   initial_path=window.get_file_paths()[1])
+assert dlg.file_combo.currentIndex() == 1, "initial_path should preselect file"
+assert dlg.gauge_list.count() == 1245, f"expected 1245 gauges, got {dlg.gauge_list.count()}"
+assert dlg.out_edit.text().endswith(".csv"), "suggested output should be .csv"
+dlg.format_combo.setCurrentIndex(2)  # SWMM .dat
+assert dlg.out_edit.text().endswith(".dat"), "extension should follow format"
+dlg.set_all_checked(False)
+dlg.gauge_list.item(0).setCheckState(Qt.Checked)
+out_path = os.path.join(os.environ["TEMP"], "smoke_export.dat")
+dlg.out_edit.setText(out_path)
+dlg.start_export()
+dlg.worker.wait(30000)
+app.processEvents()
+assert os.path.getsize(out_path) > 0, "export should write data"
+with open(out_path, encoding="utf-8") as f:
+    first = f.readline().split()
+assert len(first) == 7, f"dat line should have 7 fields, got {first}"
+print("ExportDialog OK:", first)
+dlg.close()
+
+# --- VisualizationDialog ----------------------------------------------------
+viz = VisualizationDialog(window.get_file_paths(), parent=window)
+viz.thread.wait(60000)
+app.processEvents()
+assert viz.gauge_combo.count() > 0, "gauge combo should populate after analysis"
+assert viz.table.rowCount() == 8, "stats table should have 8 rows"
+viz.cumulative_check.setChecked(True)
+app.processEvents()
+viz.file_combo.setCurrentIndex(1)  # triggers PlotLoaderThread
+viz.plot_loader.wait(60000)
+app.processEvents()
+assert viz.file_combo.isEnabled(), "file combo should re-enable after load"
+assert viz.gauge_combo.count() > 0, "gauges should populate for second file"
+print("VisualizationDialog OK:",
+      viz.table.item(4, 1).text(), "points,", viz.gauge_combo.count(), "plottable gauges")
+viz.close()
+
+window.close()
+QTimer.singleShot(0, app.quit)
+app.exec_()
+errors = [b for b in boxes if b[0] == "critical"]
+assert not errors, f"error dialogs were shown: {errors}"
+print("Message boxes shown:", [b[0] for b in boxes])
+print("SMOKE TEST PASSED")

@@ -11,9 +11,10 @@ from PyQt5.QtGui import QIcon, QPainter, QColor
 
 from merge_rff import merge_rff
 from visualize import VisualizationDialog
+from export_dialog import ExportDialog
 from theme import STYLESHEET, PLACEHOLDER
 
-VERSION = "v1.1.0"
+VERSION = "v1.2.0"
 
 def resource_path(relative_path):
     """ Get absolute path to resource, works for dev and for PyInstaller """
@@ -197,6 +198,10 @@ class MainWindow(QMainWindow):
         btn_visualize.clicked.connect(self.show_visualization)
         action_layout.addWidget(btn_visualize)
 
+        btn_export = QPushButton("Export…")
+        btn_export.clicked.connect(self.show_export)
+        action_layout.addWidget(btn_export)
+
         btn_help = QPushButton("Help")
         btn_help.clicked.connect(self.show_help)
         action_layout.addWidget(btn_help)
@@ -251,6 +256,17 @@ class MainWindow(QMainWindow):
         dlg = VisualizationDialog(paths, self)
         dlg.exec_()
 
+    def show_export(self):
+        paths = self.get_file_paths()
+        if not paths:
+            QMessageBox.warning(self, "No files", "Please add at least one .rff file to export.")
+            return
+
+        selected = self.file_list.selectedItems()
+        initial = selected[0].data(Qt.UserRole) if selected else None
+        dlg = ExportDialog(paths, parent=self, initial_path=initial)
+        dlg.exec_()
+
     def show_help(self):
         msg = (
             f"RFF Merger {VERSION}\n\n"
@@ -258,7 +274,8 @@ class MainWindow(QMainWindow):
             "- Add files by dragging and dropping them into the list.\n"
             "- Reorder them by dragging items up or down. Files higher in the list are processed first.\n"
             "- Data from files lower in the list will overwrite data from higher files if timestamps overlap.\n"
-            "- Click 'Visualize' to preview the rainfall statistics before merging.\n\n"
+            "- Click 'Visualize' to preview the rainfall statistics before merging.\n"
+            "- Click 'Export' to convert a .rff file to CSV, SWMM rain data (.dat), or JSON.\n\n"
             "Credits: Ross Volkwein"
         )
         QMessageBox.information(self, "Help & About", msg)

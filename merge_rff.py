@@ -24,6 +24,7 @@ Assumptions:
 from __future__ import annotations
 
 import argparse
+import datetime
 import os
 import re
 import struct
@@ -38,6 +39,13 @@ GAUGE_BLOCK_SIZE = 1037
 GAUGE_ID_SIZE = 16
 DIR_TAIL_SIZE = 16  # 4 uint32
 RECORD_SIZE = 12    # float64 + float32
+
+EXCEL_EPOCH = datetime.datetime(1899, 12, 30)
+
+
+def excel_to_datetime(excel_date: float) -> datetime.datetime:
+    """Convert an Excel day serial (origin 1899-12-30) to a datetime."""
+    return EXCEL_EPOCH + datetime.timedelta(days=excel_date)
 
 
 @dataclass
