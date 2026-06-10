@@ -1,15 +1,15 @@
 import sys
-from itertools import accumulate
 from pathlib import Path
 
 from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                              QPushButton, QTableWidget, QTableWidgetItem, QHeaderView,
-                             QComboBox, QCheckBox)
+                             QComboBox, QCheckBox, QProgressBar)
 from PyQt5.QtCore import QThread, pyqtSignal, Qt
+import numpy as np
 import pyqtgraph as pg
 
 from merge_rff import (excel_to_datetime, read_rff_header_and_directory,
-                       read_gauge_records)
+                       read_gauge_arrays)
 from export_dialog import ExportDialog
 from theme import ACCENT, SURFACE, TEXT
 
@@ -20,6 +20,7 @@ pg.setConfigOptions(antialias=True)
 
 
 class DataProcessorThread(QThread):
+    progress = pyqtSignal(int, int, str)  # current, total, label
     finished = pyqtSignal(dict, list) # stats, plot_data
     error = pyqtSignal(str)
 
@@ -39,40 +40,40 @@ class DataProcessorThread(QThread):
                 "max_date": float('-inf'),
                 "max_rain": 0.0
             }
-            plot_data = [] # List of tuples (times, values, gauge_id) for first file
+            plot_data = [] # List of (times, values, gauge_id) arrays for first file
 
             if not self.file_paths:
                 self.finished.emit(stats, plot_data)
                 return
 
-            # Read first file for plot
-            rff_first = read_rff_header_and_directory(self.file_paths[0])
-            stats["gauge_count"] = rff_first.gauge_count
+            # Headers first, so progress can count gauges across all files
+            rffs = [read_rff_header_and_directory(p) for p in self.file_paths]
+            stats["gauge_count"] = rffs[0].gauge_count
+            total_gauges = sum(r.gauge_count for r in rffs)
 
-            all_gauges = set(entry.gauge_id for entry in rff_first.directory)
+            all_gauges = set(entry.gauge_id for entry in rffs[0].directory)
             gauges_with_data = set()
 
-            # Process all files for stats
-            for path in self.file_paths:
-                rff = read_rff_header_and_directory(path)
-                for entry in rff.directory:
-                    recs = read_gauge_records(rff.path, entry)
-                    stats["total_points"] += len(recs)
-                    if recs:
-                        gauges_with_data.add(entry.gauge_id)
+            # Process all files for stats, one open handle per file
+            done = 0
+            for path, rff in zip(self.file_paths, rffs):
+                name = Path(path).name
+                with open(path, "rb") as fh:
+                    for entry in rff.directory:
+                        done += 1
+                        self.progress.emit(done, total_gauges, name)
+                        times, values = read_gauge_arrays(path, entry, fh=fh)
+                        stats["total_points"] += times.size
+                        if times.size:
+                            gauges_with_data.add(entry.gauge_id)
 
-                        times, values = zip(*recs)
-                        c_min_time = min(times)
-                        c_max_time = max(times)
-                        c_max_val = max(values)
+                            stats["min_date"] = min(stats["min_date"], float(times.min()))
+                            stats["max_date"] = max(stats["max_date"], float(times.max()))
+                            stats["max_rain"] = max(stats["max_rain"], float(values.max()))
 
-                        stats["min_date"] = min(stats["min_date"], c_min_time)
-                        stats["max_date"] = max(stats["max_date"], c_max_time)
-                        stats["max_rain"] = max(stats["max_rain"], c_max_val)
-
-                        # Grab the first file's gauges for plotting to keep it light
-                        if path == self.file_paths[0]:
-                            plot_data.append((times, values, entry.gauge_id))
+                            # Grab the first file's gauges for plotting to keep it light
+                            if path == self.file_paths[0]:
+                                plot_data.append((times, values, entry.gauge_id))
 
             empty_gauges = all_gauges - gauges_with_data
             stats["active_gauges"] = len(gauges_with_data)
@@ -84,7 +85,8 @@ class DataProcessorThread(QThread):
 
 
 class PlotLoaderThread(QThread):
-    """Load (times, values, gauge_id) tuples for one file, for plotting."""
+    """Load (times, values, gauge_id) arrays for one file, for plotting."""
+    progress = pyqtSignal(int, int, str)  # current, total, label
     finished = pyqtSignal(str, list)  # path, plot_data
     error = pyqtSignal(str)
 
@@ -96,11 +98,12 @@ class PlotLoaderThread(QThread):
         try:
             plot_data = []
             rff = read_rff_header_and_directory(self.path)
+            name = Path(self.path).name
             with open(self.path, "rb") as fh:
-                for entry in rff.directory:
-                    recs = read_gauge_records(self.path, entry, fh=fh)
-                    if recs:
-                        times, values = zip(*recs)
+                for i, entry in enumerate(rff.directory):
+                    self.progress.emit(i + 1, rff.gauge_count, name)
+                    times, values = read_gauge_arrays(self.path, entry, fh=fh)
+                    if times.size:
                         plot_data.append((times, values, entry.gauge_id))
             self.finished.emit(self.path, plot_data)
         except Exception as e:
@@ -123,6 +126,12 @@ class VisualizationDialog(QDialog):
         self.info_label.setObjectName("subtitle")
         self.info_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(self.info_label)
+
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setTextVisible(False)
+        self.progress_bar.setFixedHeight(8)
+        self.progress_bar.setRange(0, 0)  # indeterminate until first progress signal
+        layout.addWidget(self.progress_bar)
 
         self.table = QTableWidget()
         self.table.setColumnCount(2)
@@ -175,11 +184,18 @@ class VisualizationDialog(QDialog):
 
         # Start thread
         self.thread = DataProcessorThread(file_paths)
+        self.thread.progress.connect(self.on_progress)
         self.thread.finished.connect(self.on_processing_finished)
         self.thread.error.connect(self.on_processing_error)
         self.thread.start()
 
+    def on_progress(self, current, total, name):
+        self.progress_bar.setMaximum(total)
+        self.progress_bar.setValue(current)
+        self.info_label.setText(f"Reading {name} — gauge {current}/{total}")
+
     def on_processing_finished(self, stats, plot_data):
+        self.progress_bar.hide()
         self.info_label.setText(f"Analysis complete for {stats['file_count']} files.")
 
         # Populate table
@@ -232,18 +248,23 @@ class VisualizationDialog(QDialog):
         # Block re-entry while loading; combo is re-enabled when the load ends.
         self.file_combo.setEnabled(False)
         self.info_label.setText(f"Loading {Path(path).name}…")
+        self.progress_bar.setRange(0, 0)
+        self.progress_bar.show()
         self.plot_loader = PlotLoaderThread(path)
+        self.plot_loader.progress.connect(self.on_progress)
         self.plot_loader.finished.connect(self.on_plot_loaded)
         self.plot_loader.error.connect(self.on_plot_load_error)
         self.plot_loader.start()
 
     def on_plot_loaded(self, path, plot_data):
         self.file_combo.setEnabled(True)
+        self.progress_bar.hide()
         self.info_label.setText(f"Analysis complete for {len(self.file_paths)} files.")
         self.set_plot_data(plot_data)
 
     def on_plot_load_error(self, err_msg):
         self.file_combo.setEnabled(True)
+        self.progress_bar.hide()
         self.info_label.setText(f"Error loading file: {err_msg}")
 
     def on_gauge_selected(self, index):
@@ -256,9 +277,9 @@ class VisualizationDialog(QDialog):
         if gid not in self.plot_data_map:
             return
         times, values = self.plot_data_map[gid]
-        unix_times = [((t - 25569) * 86400) for t in times]
+        unix_times = (times - 25569.0) * 86400.0
         cumulative = self.cumulative_check.isChecked()
-        plot_values = list(accumulate(values)) if cumulative else list(values)
+        plot_values = np.cumsum(values, dtype=np.float64) if cumulative else values
 
         self.plot_widget.clear()
         accent = pg.mkColor(ACCENT)
@@ -283,4 +304,5 @@ class VisualizationDialog(QDialog):
         dlg.exec_()
 
     def on_processing_error(self, err_msg):
+        self.progress_bar.hide()
         self.info_label.setText(f"Error analyzing data: {err_msg}")

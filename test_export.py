@@ -4,7 +4,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from merge_rff import GAUGE_BLOCK_SIZE, GAUGE_ID_SIZE, MAGIC, excel_to_datetime
+from merge_rff import (GAUGE_BLOCK_SIZE, GAUGE_ID_SIZE, MAGIC,
+                       excel_to_datetime, read_gauge_arrays,
+                       read_gauge_records, read_rff_header_and_directory)
 from export_rff import (excel_to_rounded_datetime, export_rff_file,
                         format_value, list_gauges)
 
@@ -70,6 +72,18 @@ class TestExportRFF(unittest.TestCase):
         self.assertEqual(format_value(0.25), "0.25")
         f32_tenth = struct.unpack("<f", struct.pack("<f", 0.1))[0]
         self.assertEqual(format_value(f32_tenth), "0.1")
+
+    def test_read_gauge_arrays_matches_records(self):
+        rff = read_rff_header_and_directory(self.rff_path)
+        for entry in rff.directory:
+            recs = read_gauge_records(self.rff_path, entry)
+            times, values = read_gauge_arrays(self.rff_path, entry)
+            self.assertEqual(str(times.dtype), "float64")
+            self.assertEqual(str(values.dtype), "float32")
+            self.assertEqual(times.size, len(recs))
+            for (t, v), at, av in zip(recs, times, values):
+                self.assertEqual(t, at)
+                self.assertEqual(v, av)
 
     def test_list_gauges(self):
         rows = list_gauges(self.rff_path)
