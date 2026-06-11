@@ -23,7 +23,7 @@ call .\venv\Scripts\python -m pip install pyinstaller
 :: Build the executable
 echo Building RFF_Utilities...
 :: Pyinstaller onefile with windowed no console, imports are traced via main.py
-call .\venv\Scripts\pyinstaller --noconfirm --onefile --windowed --icon="assets\icon.ico" --add-data "assets\icon.ico;assets" --name "RFF_Utilities" "main.py"
+call .\venv\Scripts\pyinstaller --noconfirm --onefile --windowed --icon="assets\icon.ico" --add-data "assets\icon.ico;assets" --add-data "assets\logo.png;assets" --name "RFF_Utilities" "main.py"
 
 if exist "dist\RFF_Utilities.exe" (
     echo.

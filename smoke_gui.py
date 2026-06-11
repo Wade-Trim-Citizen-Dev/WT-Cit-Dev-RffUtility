@@ -32,6 +32,8 @@ window = app_main.MainWindow()
 for p in EXAMPLES:
     window.file_list.add_file(os.path.abspath(p))
 assert window.file_list.count() == 2, "file list should hold both examples"
+assert window.logo_label.pixmap() and not window.logo_label.pixmap().isNull(), \
+    "header logo should load from assets/logo.png"
 
 # --- ExportDialog ---------------------------------------------------------
 dlg = ExportDialog(window.get_file_paths(), parent=window,

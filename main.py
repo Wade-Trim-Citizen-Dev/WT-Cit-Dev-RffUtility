@@ -6,15 +6,15 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QPushButton, QListWidget, QListWidgetItem,
                              QAbstractItemView, QFileDialog, QLabel, QLineEdit,
                              QMessageBox, QProgressBar, QGroupBox)
-from PyQt5.QtCore import Qt, QThread, pyqtSignal, QSize
-from PyQt5.QtGui import QIcon, QPainter, QColor
+from PyQt5.QtCore import Qt, QThread, pyqtSignal
+from PyQt5.QtGui import QIcon, QPainter, QColor, QPixmap
 
 from merge_rff import merge_rff
 from visualize import VisualizationDialog
 from export_dialog import ExportDialog
 from theme import STYLESHEET, PLACEHOLDER
 
-VERSION = "v2.1.0"
+VERSION = "v2.2.0"
 
 def resource_path(relative_path):
     """ Get absolute path to resource, works for dev and for PyInstaller """
@@ -125,12 +125,10 @@ class MainWindow(QMainWindow):
         header = QHBoxLayout()
         header.setSpacing(12)
 
-        icon_label = QLabel()
-        icon_label.setPixmap(
-            QIcon(resource_path(os.path.join("assets", "icon.ico"))).pixmap(QSize(44, 44))
-        )
-        icon_label.setFixedSize(44, 44)
-        header.addWidget(icon_label)
+        self.logo_label = QLabel()
+        self.logo_label.setPixmap(self._logo_pixmap(76))
+        self.logo_label.setFixedSize(76, 76)
+        header.addWidget(self.logo_label)
 
         title_box = QVBoxLayout()
         title_box.setSpacing(0)
@@ -286,6 +284,15 @@ class MainWindow(QMainWindow):
         dlg = ExportDialog(paths, parent=self, initial_path=initial)
         dlg.exec_()
 
+    def _logo_pixmap(self, size):
+        """The app logo scaled for display, crisp on high-DPI screens."""
+        dpr = self.devicePixelRatioF()
+        pm = QPixmap(resource_path(os.path.join("assets", "logo.png"))).scaled(
+            int(size * dpr), int(size * dpr),
+            Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        pm.setDevicePixelRatio(dpr)
+        return pm
+
     def show_help(self):
         msg = (
             f"RFF Utilities {VERSION}\n\n"
@@ -306,7 +313,11 @@ class MainWindow(QMainWindow):
             "lower in the list overwrite higher ones on overlapping timestamps.\n\n"
             "Credits: Ross Volkwein"
         )
-        QMessageBox.information(self, "Help & About", msg)
+        box = QMessageBox(self)
+        box.setWindowTitle("Help & About")
+        box.setText(msg)
+        box.setIconPixmap(self._logo_pixmap(96))
+        box.exec_()
 
     def start_merge(self):
         input_paths = self.get_file_paths()
