@@ -14,7 +14,7 @@ from visualize import VisualizationDialog
 from export_dialog import ExportDialog
 from theme import STYLESHEET, PLACEHOLDER
 
-VERSION = "v1.3.0"
+VERSION = "v2.0.0"
 
 def resource_path(relative_path):
     """ Get absolute path to resource, works for dev and for PyInstaller """
@@ -110,10 +110,10 @@ class DragDropListWidget(QListWidget):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle(f"RFF Merger {VERSION}")
+        self.setWindowTitle(f"RFF Utilities {VERSION}")
         self.setWindowIcon(QIcon(resource_path(os.path.join("assets", "icon.ico"))))
-        self.setMinimumSize(640, 560)
-        self.resize(680, 600)
+        self.setMinimumSize(640, 620)
+        self.resize(680, 660)
 
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -134,28 +134,33 @@ class MainWindow(QMainWindow):
 
         title_box = QVBoxLayout()
         title_box.setSpacing(0)
-        title = QLabel("RFF Merger")
+        title = QLabel("RFF Utilities")
         title.setObjectName("title")
-        subtitle = QLabel("Merge & inspect SWMM5-RAIN rainfall files")
+        subtitle = QLabel("Read, visualize, export & merge SWMM5-RAIN rainfall files")
         subtitle.setObjectName("subtitle")
         title_box.addWidget(title)
         title_box.addWidget(subtitle)
         header.addLayout(title_box)
         header.addStretch()
 
+        header_right = QVBoxLayout()
+        header_right.setSpacing(4)
         version_label = QLabel(VERSION)
         version_label.setObjectName("subtitle")
-        version_label.setAlignment(Qt.AlignTop | Qt.AlignRight)
-        header.addWidget(version_label)
+        version_label.setAlignment(Qt.AlignRight)
+        header_right.addWidget(version_label)
+        btn_help = QPushButton("Help")
+        btn_help.clicked.connect(self.show_help)
+        header_right.addWidget(btn_help)
+        header.addLayout(header_right)
         main_layout.addLayout(header)
 
-        # --- 1. Input files -------------------------------------------------
-        input_group = QGroupBox("1  ·  Input Files")
+        # --- Files ------------------------------------------------------------
+        input_group = QGroupBox("RFF Files")
         input_layout = QVBoxLayout(input_group)
         input_layout.setSpacing(8)
 
-        hint = QLabel("Drag to reorder chronologically — files lower in the list "
-                      "overwrite higher ones on overlapping timestamps.")
+        hint = QLabel("Every tool below works on the files in this list.")
         hint.setObjectName("sectionHint")
         hint.setWordWrap(True)
         input_layout.addWidget(hint)
@@ -178,42 +183,56 @@ class MainWindow(QMainWindow):
         input_layout.addLayout(list_btn_layout)
         main_layout.addWidget(input_group)
 
-        # --- 2. Output file -------------------------------------------------
-        output_group = QGroupBox("2  ·  Output File")
-        out_layout = QHBoxLayout(output_group)
-        out_layout.setSpacing(8)
-        self.out_edit = QLineEdit()
-        self.out_edit.setPlaceholderText("Choose where to save the merged .rff file…")
-        out_layout.addWidget(self.out_edit)
-        btn_out_browse = QPushButton("Browse…")
-        btn_out_browse.clicked.connect(self.browse_output_file)
-        out_layout.addWidget(btn_out_browse)
-        main_layout.addWidget(output_group)
+        # --- Inspect & convert --------------------------------------------------
+        inspect_group = QGroupBox("Inspect && Convert")
+        inspect_layout = QVBoxLayout(inspect_group)
+        inspect_layout.setSpacing(8)
 
-        # --- 3. Actions -----------------------------------------------------
-        action_layout = QHBoxLayout()
-        action_layout.setSpacing(8)
+        inspect_hint = QLabel("Browse per-gauge statistics and rainfall plots, or "
+                              "convert files to CSV, SWMM rain data (.dat), or JSON.")
+        inspect_hint.setObjectName("sectionHint")
+        inspect_hint.setWordWrap(True)
+        inspect_layout.addWidget(inspect_hint)
 
+        inspect_btns = QHBoxLayout()
+        inspect_btns.setSpacing(8)
         btn_visualize = QPushButton("Visualize / Statistics")
         btn_visualize.clicked.connect(self.show_visualization)
-        action_layout.addWidget(btn_visualize)
-
+        inspect_btns.addWidget(btn_visualize)
         btn_export = QPushButton("Export…")
         btn_export.clicked.connect(self.show_export)
-        action_layout.addWidget(btn_export)
+        inspect_btns.addWidget(btn_export)
+        inspect_btns.addStretch()
+        inspect_layout.addLayout(inspect_btns)
+        main_layout.addWidget(inspect_group)
 
-        btn_help = QPushButton("Help")
-        btn_help.clicked.connect(self.show_help)
-        action_layout.addWidget(btn_help)
+        # --- Merge --------------------------------------------------------------
+        merge_group = QGroupBox("Merge")
+        merge_layout = QVBoxLayout(merge_group)
+        merge_layout.setSpacing(8)
 
-        action_layout.addStretch()
+        merge_hint = QLabel("Combines every listed file into one .rff. Drag to "
+                            "reorder — files lower in the list overwrite higher "
+                            "ones on overlapping timestamps.")
+        merge_hint.setObjectName("sectionHint")
+        merge_hint.setWordWrap(True)
+        merge_layout.addWidget(merge_hint)
 
+        merge_row = QHBoxLayout()
+        merge_row.setSpacing(8)
+        self.out_edit = QLineEdit()
+        self.out_edit.setPlaceholderText("Choose where to save the merged .rff file…")
+        merge_row.addWidget(self.out_edit)
+        btn_out_browse = QPushButton("Browse…")
+        btn_out_browse.clicked.connect(self.browse_output_file)
+        merge_row.addWidget(btn_out_browse)
         self.btn_merge = QPushButton("Merge Files")
         self.btn_merge.setObjectName("mergeButton")
-        self.btn_merge.setMinimumWidth(150)
+        self.btn_merge.setMinimumWidth(130)
         self.btn_merge.clicked.connect(self.start_merge)
-        action_layout.addWidget(self.btn_merge)
-        main_layout.addLayout(action_layout)
+        merge_row.addWidget(self.btn_merge)
+        merge_layout.addLayout(merge_row)
+        main_layout.addWidget(merge_group)
 
         # --- Progress / status ---------------------------------------------
         self.progress_bar = QProgressBar()
@@ -269,13 +288,22 @@ class MainWindow(QMainWindow):
 
     def show_help(self):
         msg = (
-            f"RFF Merger {VERSION}\n\n"
-            "This tool merges multiple SWMM5-RAIN .rff binary rainfall files into one.\n"
-            "- Add files by dragging and dropping them into the list.\n"
-            "- Reorder them by dragging items up or down. Files higher in the list are processed first.\n"
-            "- Data from files lower in the list will overwrite data from higher files if timestamps overlap.\n"
-            "- Click 'Visualize' to preview the rainfall statistics before merging.\n"
-            "- Click 'Export' to convert a .rff file to CSV, SWMM rain data (.dat), or JSON.\n\n"
+            f"RFF Utilities {VERSION}\n\n"
+            "Tools for SWMM5-RAIN .rff binary rainfall files: read, visualize, "
+            "export, and merge.\n\n"
+            "Files\n"
+            "- Drag .rff files into the list (or click 'Add Files'). Every tool "
+            "works on the files in this list.\n\n"
+            "Visualize / Statistics\n"
+            "- Per-gauge statistics across all listed files, plus an interactive "
+            "rainfall plot with a per-file gauge browser and a cumulative view.\n\n"
+            "Export\n"
+            "- Convert a file to CSV (one row per reading, one column per gauge, "
+            "or one file per gauge), SWMM rain data (.dat), or JSON — all gauges "
+            "or a checked subset.\n\n"
+            "Merge\n"
+            "- Combine every listed file into one .rff. Drag to reorder: files "
+            "lower in the list overwrite higher ones on overlapping timestamps.\n\n"
             "Credits: Ross Volkwein"
         )
         QMessageBox.information(self, "Help & About", msg)
