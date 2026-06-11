@@ -83,6 +83,15 @@ viz.plot_loader.wait(60000)
 app.processEvents()
 assert viz.file_combo.isEnabled(), "file combo should re-enable after load"
 assert viz.gauge_combo.count() > 0, "gauges should populate for second file"
+vm = viz.values_model
+gid = viz.gauge_combo.currentText()
+assert vm.rowCount() == viz.plot_data_map[gid][0].size, \
+    "values table should hold every record of the selected gauge"
+assert vm.columnCount() == 3, "values table should have datetime/value/cumulative"
+row0 = [vm.index(0, c).data() for c in range(3)]
+assert row0[0].startswith("2018-"), f"first cell should be a 2018 datetime, got {row0[0]}"
+assert row0[1] == row0[2], "first cumulative value should equal the first value"
+print("Values table OK:", vm.rowCount(), "rows, first row:", row0)
 print("VisualizationDialog OK:",
       viz.table.item(4, 1).text(), "points,", viz.gauge_combo.count(), "plottable gauges")
 viz.close()

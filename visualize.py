@@ -1,15 +1,18 @@
 import sys
 from pathlib import Path
 
-from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
+from PyQt5.QtWidgets import (QApplication, QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                              QPushButton, QTableWidget, QTableWidgetItem, QHeaderView,
+                             QTableView, QSplitter, QShortcut,
                              QComboBox, QCheckBox, QProgressBar)
-from PyQt5.QtCore import QThread, pyqtSignal, Qt
+from PyQt5.QtCore import QThread, pyqtSignal, Qt, QAbstractTableModel, QModelIndex
+from PyQt5.QtGui import QKeySequence
 import numpy as np
 import pyqtgraph as pg
 
 from merge_rff import (excel_to_datetime, read_rff_header_and_directory,
                        read_gauge_arrays)
+from export_rff import excel_to_rounded_datetime, format_value
 from export_dialog import ExportDialog
 from theme import ACCENT, SURFACE, TEXT
 
@@ -110,11 +113,66 @@ class PlotLoaderThread(QThread):
             self.error.emit(str(e))
 
 
+class GaugeValuesModel(QAbstractTableModel):
+    """Read-only table of one gauge's records, backed by the numpy arrays.
+
+    Cells are formatted lazily (only visible rows), so even gauges with
+    hundreds of thousands of records display instantly. Formatting matches
+    the export formats: timestamps rounded to the second, values %.6g.
+    """
+
+    HEADERS = ("Date/Time", "Rainfall", "Cumulative")
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._times = None
+        self._values = None
+        self._cumulative = None
+
+    def set_gauge(self, times, values):
+        self.beginResetModel()
+        self._times = times
+        self._values = values
+        self._cumulative = (np.cumsum(values, dtype=np.float64)
+                            if values is not None and values.size else None)
+        self.endResetModel()
+
+    def clear(self):
+        self.set_gauge(None, None)
+
+    def rowCount(self, parent=QModelIndex()):
+        if parent.isValid() or self._times is None:
+            return 0
+        return int(self._times.size)
+
+    def columnCount(self, parent=QModelIndex()):
+        return 0 if parent.isValid() else len(self.HEADERS)
+
+    def data(self, index, role=Qt.DisplayRole):
+        if not index.isValid():
+            return None
+        if role == Qt.TextAlignmentRole and index.column() > 0:
+            return int(Qt.AlignRight | Qt.AlignVCenter)
+        if role != Qt.DisplayRole:
+            return None
+        row, col = index.row(), index.column()
+        if col == 0:
+            return f"{excel_to_rounded_datetime(float(self._times[row])):%Y-%m-%d %H:%M:%S}"
+        if col == 1:
+            return format_value(float(self._values[row]))
+        return format_value(float(self._cumulative[row]))
+
+    def headerData(self, section, orientation, role=Qt.DisplayRole):
+        if role == Qt.DisplayRole and orientation == Qt.Horizontal:
+            return self.HEADERS[section]
+        return None
+
+
 class VisualizationDialog(QDialog):
     def __init__(self, file_paths, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Data Statistics & Visualization")
-        self.resize(800, 640)
+        self.resize(980, 640)
         self.file_paths = file_paths
         self.plot_data_map = {}
 
@@ -170,7 +228,26 @@ class VisualizationDialog(QDialog):
         self.plot_widget.setLabel('left', 'Rainfall', units='in/mm')
         self.plot_widget.setLabel('bottom', 'Time (Date)')
         self.plot_widget.showGrid(x=True, y=True)
-        layout.addWidget(self.plot_widget)
+
+        self.values_model = GaugeValuesModel(self)
+        self.values_table = QTableView()
+        self.values_table.setModel(self.values_model)
+        self.values_table.setEditTriggers(QTableView.NoEditTriggers)
+        self.values_table.setSelectionBehavior(QTableView.SelectRows)
+        self.values_table.setAlternatingRowColors(True)
+        self.values_table.setShowGrid(False)
+        self.values_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.values_table.verticalHeader().setVisible(False)
+        self.values_table.verticalHeader().setDefaultSectionSize(26)
+        QShortcut(QKeySequence.Copy, self.values_table,
+                  self.copy_values_selection, context=Qt.WidgetShortcut)
+
+        splitter = QSplitter(Qt.Horizontal)
+        splitter.addWidget(self.plot_widget)
+        splitter.addWidget(self.values_table)
+        splitter.setStretchFactor(0, 3)
+        splitter.setStretchFactor(1, 2)
+        layout.addWidget(splitter, 1)
 
         btn_layout = QHBoxLayout()
         export_btn = QPushButton("Export…")
@@ -238,6 +315,7 @@ class VisualizationDialog(QDialog):
         if self.gauge_combo.count() > 0:
             self.on_gauge_selected(0)
         else:
+            self.values_model.clear()
             self.plot_widget.clear()
             self.plot_widget.setTitle("Rainfall Data Preview — no data in this file")
 
@@ -270,7 +348,23 @@ class VisualizationDialog(QDialog):
     def on_gauge_selected(self, index):
         if index < 0:
             return
+        gid = self.gauge_combo.currentText()
+        if gid not in self.plot_data_map:
+            return
+        times, values = self.plot_data_map[gid]
+        self.values_model.set_gauge(times, values)
         self.replot_current_gauge()
+
+    def copy_values_selection(self):
+        sel = self.values_table.selectionModel()
+        rows = sorted({i.row() for i in sel.selectedRows()}) if sel else []
+        if not rows:
+            return
+        m = self.values_model
+        lines = ["\t".join(m.HEADERS)]
+        lines += ["\t".join(m.index(r, c).data() for c in range(len(m.HEADERS)))
+                  for r in rows]
+        QApplication.clipboard().setText("\n".join(lines))
 
     def replot_current_gauge(self):
         gid = self.gauge_combo.currentText()

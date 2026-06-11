@@ -16,9 +16,10 @@ files** — read, visualize, export, and merge. Formerly *RFF Merger*.
 
 - Drag-and-drop GUI to add and reorder `.rff` files (PyQt5).
 - Per-gauge statistics and an interactive rainfall plot (pyqtgraph), with a
-  per-file gauge browser, a cumulative-rainfall view, and a progress bar while
-  files are analyzed (numpy-backed reads — a 40 MB file takes well under a
-  second locally).
+  per-file gauge browser, a cumulative-rainfall view, a value table beside the
+  plot (date/time, rainfall, cumulative — Ctrl+C copies selected rows), and a
+  progress bar while files are analyzed (numpy-backed reads — a 40 MB file
+  takes well under a second locally).
 - Export any `.rff` file to CSV (long, wide, or one file per gauge), SWMM
   user-prepared rain data (`.dat`), or JSON — all gauges or a checked subset.
 - Background merge with a progress bar.
@@ -48,7 +49,9 @@ python main.py
 1. Drag `.rff` files into the list (or use **Add Files**). Every tool works on
    the files in this list.
 2. **Visualize / Statistics** — per-gauge stats across all listed files; pick a
-   file and gauge to plot, toggle **Cumulative** for a running total.
+   file and gauge to plot, toggle **Cumulative** for a running total. A table
+   beside the plot lists every record (date/time, rainfall, cumulative);
+   select rows and press Ctrl+C to copy them.
 3. **Export…** — convert a file to CSV/`.dat`/JSON, all gauges or a checked
    subset.
 4. **Merge** — choose an output path in the Merge box and click **Merge
