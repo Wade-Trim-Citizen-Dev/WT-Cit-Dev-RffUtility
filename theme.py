@@ -57,7 +57,7 @@ QGroupBox::title {{
     color: {TEXT_MUTED};
 }}
 
-QListWidget, QTableWidget {{
+QListWidget, QTableWidget, QTableView {{
     background: {SURFACE};
     border: 1px solid {BORDER};
     border-radius: 8px;
@@ -154,12 +154,16 @@ QHeaderView::section {{
     border-bottom: 1px solid {BORDER};
     font-weight: 600;
 }}
-QTableWidget {{
+QTableWidget, QTableView {{
     gridline-color: #EEF0F2;
     alternate-background-color: #F7F9FA;
 }}
-QTableWidget::item {{
+QTableWidget::item, QTableView::item {{
     padding: 6px 8px;
+}}
+QTableView::item:selected {{
+    background: {ACCENT_SOFT};
+    color: {TEXT};
 }}
 
 QScrollBar:vertical {{

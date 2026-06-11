@@ -14,7 +14,7 @@ from visualize import VisualizationDialog
 from export_dialog import ExportDialog
 from theme import STYLESHEET, PLACEHOLDER
 
-VERSION = "v2.0.0"
+VERSION = "v2.1.0"
 
 def resource_path(relative_path):
     """ Get absolute path to resource, works for dev and for PyInstaller """
