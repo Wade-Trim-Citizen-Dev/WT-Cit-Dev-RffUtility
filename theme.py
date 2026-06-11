@@ -32,7 +32,7 @@ QWidget {{
 }}
 
 QLabel#title {{
-    font-size: 17pt;
+    font-size: 20pt;
     font-weight: 600;
     color: {TEXT};
 }}
