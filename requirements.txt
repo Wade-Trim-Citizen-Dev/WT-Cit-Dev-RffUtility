@@ -1,4 +1,4 @@
-# Runtime dependencies for RFF Merger
+# Runtime dependencies for RFF Utilities
 PyQt5>=5.15
 pyqtgraph>=0.13
 

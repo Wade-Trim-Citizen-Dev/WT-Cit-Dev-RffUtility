@@ -1,13 +1,16 @@
-# RFF Merger
+# RFF Utilities
 
-A Windows desktop utility (with a CLI) for working with **SWMM5-RAIN `.rff`
-binary rainfall files**. It merges multiple `.rff` files into a single file,
-lets you preview rainfall statistics and per-gauge time series, and exports
-gauge data to CSV, SWMM rain data (`.dat`), or JSON.
+A Windows desktop toolkit (with CLIs) for **SWMM5-RAIN `.rff` binary rainfall
+files** — read, visualize, export, and merge. Formerly *RFF Merger*.
 
-When two files contain data for the same gauge at the same timestamp, the file
-**later in the merge order wins** — so you can layer corrected/newer data on top
-of older data.
+- **Read** — parse the binary format and list each gauge's interval and
+  record count.
+- **Visualize** — per-gauge statistics and interactive rainfall plots,
+  including a cumulative view.
+- **Export** — convert gauge data to CSV, SWMM rain data (`.dat`), or JSON.
+- **Merge** — combine multiple `.rff` files into one. When two files contain
+  data for the same gauge at the same timestamp, the file **later in the merge
+  order wins** — so you can layer corrected/newer data on top of older data.
 
 ## Features
 
@@ -42,13 +45,15 @@ pip install -r requirements.txt
 python main.py
 ```
 
-1. Drag `.rff` files into the list (or use **Add Files**). Reorder by dragging —
-   files higher in the list are processed first; lower files overwrite higher
-   ones on overlapping timestamps.
-2. Choose an output file.
-3. Click **Visualize / Statistics** to preview (pick a file and gauge, toggle
-   **Cumulative** for a running total), **Export…** to convert a file to
-   CSV/`.dat`/JSON, or **Merge Files** to write the merged output.
+1. Drag `.rff` files into the list (or use **Add Files**). Every tool works on
+   the files in this list.
+2. **Visualize / Statistics** — per-gauge stats across all listed files; pick a
+   file and gauge to plot, toggle **Cumulative** for a running total.
+3. **Export…** — convert a file to CSV/`.dat`/JSON, all gauges or a checked
+   subset.
+4. **Merge** — choose an output path in the Merge box and click **Merge
+   Files**. Reorder inputs by dragging — files lower in the list overwrite
+   higher ones on overlapping timestamps.
 
 ### CLI — merging
 
@@ -103,7 +108,7 @@ to remove floating-point jitter from the Excel day serials stored in the file.
 
 ## The `.rff` file format
 
-This format was reverse-engineered; the merger assumes the following layout
+This format was reverse-engineered; the tools assume the following layout
 (little-endian):
 
 | Section | Bytes | Contents |
@@ -131,7 +136,7 @@ order, and matching reporting intervals.
 build_exe.bat
 ```
 
-This installs PyInstaller into `venv` and produces `dist\RFF_Merger.exe`
+This installs PyInstaller into `venv` and produces `dist\RFF_Utilities.exe`
 (single-file, windowed). A previous build, if present, is archived with a
 timestamp.
 

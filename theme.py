@@ -1,4 +1,4 @@
-"""Shared visual theme for the RFF Merger UI.
+"""Shared visual theme for the RFF Utilities UI.
 
 A single light, flat theme applied application-wide via ``app.setStyleSheet``.
 Colors are also exported as constants so non-QSS surfaces (the pyqtgraph plot,
